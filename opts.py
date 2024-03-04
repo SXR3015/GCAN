@@ -3,7 +3,7 @@ import argparse
 def parse_opts():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--root_path', default=r'E:\sxr\phd\LM in MRI\subject_division_all', type=str, help='Root directory path of code')
+        '--root_path', default=r'E:\sxr\phd\LM in MRI\network_generation', type=str, help='Root directory path of code')
     parser.add_argument(
         '--pretrained_vae', default=r'E:\sxr\phd\LM in MRI\code\results\ALL\VQGAN\weights_MCI_SCD_fold1_ALFF_DFC_FA_FC_epoch300'
                                     r'\resnet10_weights_fold1_epoch218.pth', type=str, help='pretrained weight of vae')
@@ -16,7 +16,7 @@ def parse_opts():
     parser.add_argument(
         '--data_root_path', default=r'D:\sxr_bak\images\train', type=str, help='Root directory path of data')
     parser.add_argument(
-        '--mode_net', default=r'pretrained classifier', type=str, help='project mode: pretrained classifier, image_generator, or text-image generator')
+        '--mode_net', default=r'region-specific', type=str, help='project mode: pretrained classifier, image_generator, or region-specific')
     parser.add_argument(
         '--pretrain_path', default=r'', type=str, help='path of pretrained classifier weight')
     parser.add_argument(
@@ -37,7 +37,7 @@ def parse_opts():
         '--train_pretrain', default=' ', type=str, help='wheather train the pretrained model or not')
     #False
     parser.add_argument(
-        '--data_type', default='DFC', type=str, help='FC or JPEG')
+        '--data_type', default='DFC_CLINICAL', type=str, help='FC or JPEG')
     parser.add_argument(
         '--category', default='HC_SCD', type=str, help='Different data type directory')
     parser.add_argument(
@@ -76,8 +76,7 @@ def parse_opts():
     parser.add_argument(
         '--lr_patience', default=10, type=int, help='Patience of LR scheduler. See documentation of ReduceLROnPlateau.')
     parser.add_argument(
-        '--batch_size', default=48
-        , type=int, help='Batch Size')
+        '--batch_size', default=16, type=int, help='Batch Size')
     parser.add_argument('--temperature', default=0.07, type=float,
                         help='softmax temperature (default: 0.07)')
     parser.add_argument('--n_views', default=512, type=int, metavar='N',
@@ -137,7 +136,7 @@ def parse_opts():
         '--dim', default=512, type=int,
         help='Last dimension of output tensor after linear transformation in transformer')
     parser.add_argument(
-        '--depth', default=3, type=int,
+        '--depth', default=4, type=int,
         help='Number of Transformer blocks.')
     parser.add_argument(
         '--classify_depth', default=1, type=int,

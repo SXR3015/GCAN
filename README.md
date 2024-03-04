@@ -21,19 +21,19 @@ To run the model, you need to extract the dfc by Matlab. You can use the batch o
 generate_csv.py
 ```
 ### __pretrain classifier model__  
-set the net_mode as pretrained classifier  opt.py
+set the mode_net as pretrained classifier  opt.py
 ```diff
 run
 main.py
 ```
 ### __get counterfactual attention__  
-set the net_mode as image_generator in opt.py
+set the mode_net as image_generator in opt.py
 ```diff
 run
 main.py
 ```
 ### __train final classifier__  
-set the net_mode as clssifier in opt.py
+set the mode_net as region-specific in opt.py
 ```diff
 run
 main.py

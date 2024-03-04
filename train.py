@@ -8,7 +8,7 @@ from utils import OsJoin
 import time
 import matplotlib.pyplot as plt
 from models.my_model  import generator, Transformer_dirsc
-from utils import AverageMeter,calculate_accuracy
+from utils import AverageMeter,calculate_accuracy,generate_target_label,generate_neurodegeneration
 
 def plt_image(array):
     figure = plt.figure()
@@ -22,6 +22,10 @@ def plt_image(array):
     # image = Image.open(buf)
     plt.close(figure)
     return figure
+def normalize(array):
+    max_ = np.max(np.max(array))
+    min_ = np.min(np.min(array))
+    return (array-max_)/(max_-min_)
 def train_epoch(epoch, fold_id, data_loader, model, criterion,
                 opt, epoch_logger, batch_logger, writer,optimizer_G, optimizer_D):
     print('train at epoch {}'.format(epoch))
@@ -37,8 +41,15 @@ def train_epoch(epoch, fold_id, data_loader, model, criterion,
     end_time = time.time()
     labels_arr = torch.empty(4).cuda()
     pred_arr = torch.empty(4, 1).cuda()
+    SFC_gen_total =torch.zeros((1,160,160))
+    gen_target_total = torch.zeros((1, 160, 160))
+    if opt.n_classes == 3:
+        labels_total = torch.zeros((1,3))
+    elif opt.n_classes == 2:
+        labels_total = torch.zeros((1,2))
     # optimizer_G.zero_grad()
     # optimizer_D.zero_grad()
+    writer_index = np.random.randint(1,len(data_loader),size=1)
     for i ,(inputs,labels, target_FC) in enumerate(data_loader):
         # if i > 50:
         #     continue
@@ -60,6 +71,7 @@ def train_epoch(epoch, fold_id, data_loader, model, criterion,
             labels = labels.repeat(1,inputs[0].shape[1]).view(-1,3)
         else:
             labels = labels.repeat(1, inputs[0].shape[1]).view(-1, 2)
+        target_FC = target_FC.unsqueeze(1).repeat(1,inputs[0].shape[1],1,1).view(-1, inputs[0].shape[2], inputs[0].shape[3])
         inputs[0] = inputs[0].view(-1,inputs[0].shape[2], inputs[0].shape[3])
         inputs[1] = inputs[1].view(-1, inputs[1].shape[2], inputs[1].shape[3])
         labels = labels.type(torch.FloatTensor)
@@ -83,10 +95,13 @@ def train_epoch(epoch, fold_id, data_loader, model, criterion,
         #inputs_1=[inputs[0], inputs[2], inputs[3]]
 #        inputs_2 = [inputs[5], inputs[3], inputs[4]]
 #         inputs = [list(inputs)]
-        if opt.mode_net == 'pretrained classifier':
+        if opt.mode_net == 'pretrained classifier' or opt.mode_net == 'region-specific':
            loss, outputs = model([inputs,labels])
         elif opt.mode_net == 'image_generator' or opt.mode_net == 'text-image generator':
             loss, loss_discr, SFC_gen, outputs, gen_target = model([inputs,labels,target_FC])
+            SFC_gen_total = torch.concatenate([SFC_gen_total.to(SFC_gen.device),SFC_gen.squeeze()],dim=0)
+            gen_target_total = torch.concatenate([gen_target_total.to(gen_target), gen_target.squeeze()], dim=0)
+            labels_total = torch.concatenate([labels_total.to(labels), labels], dim=0)
             if len(SFC_gen.squeeze().shape) == 3:
                gen_smaple = SFC_gen.squeeze()[0, :, :,...].cpu().detach().numpy()
             else:
@@ -102,8 +117,10 @@ def train_epoch(epoch, fold_id, data_loader, model, criterion,
                 noise_smaple = inputs_noise.squeeze().cpu().detach().numpy()
             if len(SFC_gen.squeeze().shape) == 3:
                 gen_target_smaple = gen_target.squeeze()[0, :, :, ...].cpu().detach().numpy()
+                sub_sample = normalize(gen_target_smaple) - normalize(gen_smaple)
             else:
-                gen_target_smaple = gen_target.squeeze().cpu().detach().numpy()
+                gen_target_smaple = gen_target_smaple.squeeze().cpu().detach().numpy()
+                sub_sample = normalize(gen_target_smaple) - normalize(gen_smaple)
             # gen_smaple = SFC_gen.squeeze()[0,:,:,...].cpu().detach().numpy()
             # gen_smaple = np.transpose(gen_smaple, (1, 2, 0))
             # target_smaple = inputs[0][0].squeeze()[0, :, :,...].cpu().detach().numpy()
@@ -116,7 +133,7 @@ def train_epoch(epoch, fold_id, data_loader, model, criterion,
             #     target_smaple[110:131, 110:131] = 0
             # image = Image.fromarray(gen_smaple)
             result_path = OsJoin(opt.root_path, opt.result_path)
-            save_path = OsJoin(result_path, opt.data_type, 'Pretrained','gen images')
+            save_path = OsJoin(result_path, opt.data_type, opt.mode_net,'gen images')
             if opt.mode_net == 'text-image generator':
                 save_path = OsJoin(result_path, opt.data_type, 'total', 'gen images')
             if not os.path.exists(save_path):
@@ -150,6 +167,15 @@ def train_epoch(epoch, fold_id, data_loader, model, criterion,
                 plt.gca().yaxis.set_major_locator(plt.NullLocator())
                 plt.savefig(save_name)
                 plt.close()
+                save_name = OsJoin(save_path,'train_epoch%d_batch%d_sub.png' % (epoch,i+1))
+                plt.imshow(sub_sample)
+                plt.axis('off')
+                plt.gca().xaxis.set_major_locator(plt.NullLocator())
+                plt.gca().yaxis.set_major_locator(plt.NullLocator())
+                plt.savefig(save_name)
+                plt.close()
+                # generate_neurodegeneration(SFC_gen, gen_target, labels, opt, epoch, i, mode='train')
+                # HC_dedeneration,MCI = generate_neurodegeneration(SFC_gen,gen_target,labels,opt)
 
         # if len(outputs) == 1:
         #     loss = criterion(outputs, labels)
@@ -184,8 +210,10 @@ def train_epoch(epoch, fold_id, data_loader, model, criterion,
             #outputs = model(inputs)
 #        outputs_list=torch.from_numpy(np.array(outputs_list)).cuda()
         #loss = criterion(outputs,labels)
-        if opt.mode_net == 'image_generator' or opt.mode_net == 'pretrained classifier':
+        if opt.mode_net == 'pretrained classifier' or opt.mode_net == 'region-specific':
             acc = calculate_accuracy(outputs, labels)
+        elif opt.mode_net == 'image_generator' :
+            acc = calculate_accuracy(outputs, generate_target_label(labels,opt))
             # acc = 1
         elif opt.mode_net == 'text-image generator':
             if opt.category == 'MCI_SCD':
@@ -201,7 +229,7 @@ def train_epoch(epoch, fold_id, data_loader, model, criterion,
         # if opt.mode_net == 'image_generator':
 
         accuracies.update(acc, inputs[0].size(0))
-        if opt.mode_net == 'pretrained classifier':
+        if opt.mode_net == 'pretrained classifier' or opt.mode_net == 'region-specific':
             optimizer_G.zero_grad()
             loss.backward()
             optimizer_G.step()
@@ -250,7 +278,7 @@ def train_epoch(epoch, fold_id, data_loader, model, criterion,
                   'Loss_discr {loss_discr.val:.4f} ({loss_discr.avg:.4f})\t'.format(
                 epoch, i + 1, len(data_loader), batch_time=batch_time,
                 data_time=data_time, loss=losses, loss_discr=losses_discr))
-            if i % 4 == 0:
+            if i % writer_index == 0:
                 writer.add_scalar('train/loss_G', losses.avg, i + (epoch - 1) * len(data_loader))
                 writer.add_scalar('train/loss_D', losses_discr.avg, i + (epoch - 1) * len(data_loader))
                 # fig, ax
@@ -262,6 +290,8 @@ def train_epoch(epoch, fold_id, data_loader, model, criterion,
                 writer.add_figure('train/gen_image', plt_image(gen_smaple), i + (epoch - 1) * len(data_loader))
                 plt.close()
                 writer.add_figure('train/gen_target_image', plt_image(gen_target_smaple), i + (epoch - 1) * len(data_loader))
+                plt.close()
+                writer.add_figure('train/sub_image', plt_image(sub_sample), i + (epoch - 1) * len(data_loader))
                 plt.close()
                 writer.add_figure('train/noise_image', plt_image(noise_smaple), i + epoch)
                 plt.close()
@@ -285,6 +315,7 @@ def train_epoch(epoch, fold_id, data_loader, model, criterion,
     # print('\n')
     # labels_arr = torch.empty(4).cuda()
     # pred_arr = torch.empty(4, 1).cuda()
+    generate_neurodegeneration(SFC_gen_total[1:,...], gen_target_total[1:,...], labels_total[1:,...], opt, epoch, mode='train')
     if opt.mode_net == 'pretrained classifier':
         epoch_logger.log({
             'epoch': epoch,
@@ -308,13 +339,13 @@ def train_epoch(epoch, fold_id, data_loader, model, criterion,
     # writer.add_image('train/gen_image', SFC_gen[0,...].squeeze().cpu().detach().numpy(), epoch)
     # writer.close()
     # writer.add_scalar('train/accuracy', accuracies.avg, epoch)
-    if opt.mode_net =="pretrained classifier":
+    if opt.mode_net =="pretrained classifier" or opt.mode_net == 'region-specific':
         checkpoint =20
     elif  opt.mode_net == 'image_generator':
         checkpoint = 100
     if opt.save_weight:
         if epoch % checkpoint == 0:
-            if opt.mode_net == 'pretrained classifier':
+            if opt.mode_net == 'pretrained classifier' or opt.mode_net == 'region-specific':
                 save_dir = OsJoin(opt.result_path, opt.data_type, opt.mode_net, opt.model_name + str(opt.model_depth),
                                  'weights_%s_fold%s_%s_epoch%d' % (opt.category, str(fold_id), opt.features, opt.n_epochs))
             elif opt.mode_net == 'image_generator':

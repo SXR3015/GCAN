@@ -15,6 +15,54 @@ import pickle
 opt = parse_opts()
 data_type = opt.data_type
 csv_dir = OsJoin(opt.data_root_path, 'csv', data_type, opt.category)
+def load_data_top10(path):
+    array_struct = sio.loadmat(path)
+    try :
+        arr= np.array((array_struct['HC_degeneration']))
+    except KeyError:
+        try :
+            arr = np.array((array_struct['SCD_degeneration']))
+        except KeyError:
+            arr = np.array((array_struct['MCI_degeneration']))
+    arr_tensor = torch.from_numpy(arr)
+    arr_tensor_sum = torch.sum(arr_tensor,dim=0)
+    values, index = arr_tensor_sum.topk(20, dim=0, largest=True)
+    zeros_ = torch.zeros(arr.shape[0],arr.shape[1])
+    zeros_[index,...]=1
+    arr_index = arr_tensor* zeros_
+    return arr_tensor
+
+def load_counterfactual(opt):
+    result_path = OsJoin(opt.root_path, opt.result_path)
+    data_path_HC = OsJoin(result_path, 'DFC','', 'image_generator', opt.category,'gen images','train_HC_degeneration_epoch1000.mat')
+    data_path_SCD = OsJoin(result_path, 'DFC', 'image_generator', opt.category, 'gen images',
+                          'train_SCD_degeneration_epoch1000.mat')
+    data_path_MCI = OsJoin(result_path, 'DFC', 'image_generator', opt.category, 'gen images',
+                          'train_MCI_degeneration_epoch1000.mat')
+    if opt.category == 'HC_MCI_SCD':
+       index_HC = load_data_top10(data_path_HC)
+       index_SCD = load_data_top10(data_path_SCD)
+       index_MCI = load_data_top10(data_path_MCI)
+       # index = torch.concatenate((index_HC,index_SCD,index_MCI),dim=0)
+       index = index_HC + index_SCD + index_MCI
+       return index
+    if opt.category == 'HC_MCI':
+       index_HC = load_data_top10(data_path_HC)
+       index_MCI = load_data_top10(data_path_MCI)
+       index = index_HC + index_MCI
+       return index
+    if opt.category == 'HC_SCD':
+       index_HC = load_data_top10(data_path_HC)
+       index_SCD = load_data_top10(data_path_SCD)
+       index = index_HC + index_SCD
+       return index
+    if opt.category == 'MCI_SCD':
+       index_MCI = load_data_top10(data_path_MCI)
+       index_SCD = load_data_top10(data_path_SCD)
+       index = index_SCD + index_MCI
+       return index
+
+
 def jpeg_loader(path):
     img_pil = Image.open(path)
     # img_pil = img_pil.resize((160,160))
@@ -262,6 +310,11 @@ class TrainSet(Dataset):
         else:
             print('None data')
         #img = self.loader(fn)
+        if opt.mode_net == 'region-specific':
+            index_region = load_counterfactual(opt)
+            # zeros_ = torch.zeros(img_arr[1].shape[1],img_arr[1].shape[2])
+            # zeros_[index_region,...]=1
+            img_arr[1] =   img_arr[1] * index_region
         label = self.label.transpose()[index]
         label= np.array([int(label_str) for label_str in label])
         target_FC = load_target_FC(label)
@@ -341,6 +394,11 @@ class ValidSet(Dataset):
         else:
                 print('None data')
         # img = self.loader(fn)
+        if opt.mode_net == 'region-specific':
+            index_region = load_counterfactual(opt)
+            # zeros_ = torch.zeros(img_arr[1].shape[1],img_arr[1].shape[2])
+            # zeros_[index_region,...]=1
+            img_arr[1] =   img_arr[1] * index_region
         label = self.label.transpose()[index]
         # text = self.text[index]
         label= np.array([int(label_str) for label_str in label])
@@ -413,6 +471,11 @@ class TestSet(Dataset):
         else:
             print('None data')
         # img = self.loader(fn)
+        if opt.mode_net == 'region-specific':
+            index_region = load_counterfactual(opt)
+            # zeros_ = torch.zeros(img_arr[1].shape[1],img_arr[1].shape[2])
+            # zeros_[index_region,...]=1
+            img_arr[1] =   img_arr[1] * index_region
         label = self.label.transpose()[index]
         # text = self.text[index]
         label= np.array([int(label_str) for label_str in label])

@@ -4,7 +4,7 @@ import time
 import os
 from utils import OsJoin
 import matplotlib.pyplot as plt
-from utils import AverageMeter, calculate_accuracy, calculate_recall
+from utils import AverageMeter, calculate_accuracy, calculate_recall,generate_target_label,generate_neurodegeneration
 import numpy as np
 
 def plt_image(array):
@@ -19,6 +19,10 @@ def plt_image(array):
     # image = Image.open(buf)
     plt.close(figure)
     return figure
+def normalize(array):
+    max_ = np.max(np.max(array))
+    min_ = np.min(np.min(array))
+    return (array-max_)/(max_-min_)
 def val_epoch(epoch,data_loader,model,criterion,opt,logger, writer,optimizer_G, optimizer_D):
     print('validation at epoch {}'.format(epoch) )
     model.eval()
@@ -36,11 +40,17 @@ def val_epoch(epoch,data_loader,model,criterion,opt,logger, writer,optimizer_G, 
     sensitivitys = AverageMeter()
     specificitys = AverageMeter()
     writer = writer
-
+    SFC_gen_total =torch.zeros((1,160,160))
+    gen_target_total = torch.zeros((1, 160, 160))
+    if opt.n_classes == 3:
+        labels_total = torch.zeros((1,3))
+    elif opt.n_classes == 2:
+        labels_total = torch.zeros((1,2))
     end_time = time.time()
 
     # labels_arr = torch.empty(4).cuda()
     # pred_arr = torch.empty(4, 1).cuda()
+    writer_index = np.random.randint(1,len(data_loader),size=1)
     for i, (inputs,labels,target_FC) in enumerate(data_loader):
         # if i > 50:
         #     continue
@@ -51,6 +61,7 @@ def val_epoch(epoch,data_loader,model,criterion,opt,logger, writer,optimizer_G, 
             labels = labels.repeat(1,inputs[0].shape[1]).view(-1,3)
         else:
             labels = labels.repeat(1, inputs[0].shape[1]).view(-1, 2)
+        target_FC = target_FC.unsqueeze(1).repeat(1,inputs[0].shape[1],1,1).view(-1, inputs[0].shape[2], inputs[0].shape[3])
         inputs[0] = inputs[0].view(-1,inputs[0].shape[2], inputs[0].shape[3])
         inputs[1] = inputs[1].view(-1, inputs[1].shape[2], inputs[1].shape[3])
         labels = labels.type(torch.FloatTensor)
@@ -79,10 +90,13 @@ def val_epoch(epoch,data_loader,model,criterion,opt,logger, writer,optimizer_G, 
         # indexs = (features_dict.index(feature) for feature in features_select)
         # inputs_1 = (inputs[index] for index in indexs)
         # inputs = [list(inputs)]
-        if opt.mode_net == 'pretrained classifier':
+        if opt.mode_net == 'pretrained classifier' or opt.mode_net == 'region-specific':
             loss, outputs = model([inputs,labels])
         elif opt.mode_net == 'image_generator' or opt.mode_net == 'text-image generator' :
             loss, loss_discr, SFC_gen, outputs,gen_target = model([inputs,labels,target_FC])
+            SFC_gen_total = torch.concatenate([SFC_gen_total.to(SFC_gen.device),SFC_gen.squeeze()],dim=0)
+            gen_target_total = torch.concatenate([gen_target_total.to(gen_target), gen_target.squeeze()], dim=0)
+            labels_total = torch.concatenate([labels_total.to(labels), labels], dim=0)
             if len(SFC_gen.squeeze().shape) == 3:
                gen_smaple = SFC_gen.squeeze()[0, :, :,...].cpu().detach().numpy()
             else:
@@ -98,8 +112,10 @@ def val_epoch(epoch,data_loader,model,criterion,opt,logger, writer,optimizer_G, 
                 noise_smaple = inputs_noise.squeeze().cpu().detach().numpy()
             if len(SFC_gen.squeeze().shape) == 3:
                 gen_target_smaple = gen_target.squeeze()[0, :, :, ...].cpu().detach().numpy()
+                sub_sample = normalize(gen_target_smaple) - normalize(gen_smaple)
             else:
                 gen_target_smaple = gen_target.squeeze().cpu().detach().numpy()
+                sub_sample = normalize(gen_target_smaple) - normalize(gen_smaple)
             # target_smaple = np.transpose(target_smaple, (1, 2, 0))
             # if 'DMN' in opt.mask_option:
             #     target_smaple[51:84, 51:84] = 0
@@ -144,6 +160,13 @@ def val_epoch(epoch,data_loader,model,criterion,opt,logger, writer,optimizer_G, 
                 plt.gca().yaxis.set_major_locator(plt.NullLocator())
                 plt.savefig(save_name)
                 plt.close()
+                save_name = OsJoin(save_path,'validation_epoch%d_batch%sub.png' % (epoch,i+1))
+                plt.imshow(sub_sample)
+                plt.axis('off')
+                plt.gca().xaxis.set_major_locator(plt.NullLocator())
+                plt.gca().yaxis.set_major_locator(plt.NullLocator())
+                plt.savefig(save_name)
+                plt.close()
             # outputs = torch.zeros(opt.num_of_feature, 3).cuda()
             # for input in inputs:
             #     output_tmp = model(input)
@@ -170,10 +193,15 @@ def val_epoch(epoch,data_loader,model,criterion,opt,logger, writer,optimizer_G, 
             #outputs_mutiply = torch.ones(inputs[0].shape[0], opt.n_classes).cuda()
             #outputs = model(inputs)
             #loss = criterion(outputs, labels)
-        if opt.mode_net == 'image_generator' or opt.mode_net == 'pretrained classifier':
+        if opt.mode_net == 'pretrained classifier' or opt.mode_net == 'region-specific':
             acc = calculate_accuracy(outputs, labels)
             recall, precision, f1, sensitivity, specificity = calculate_recall(outputs,
-                                                                               labels,
+                                                                               labels, opt)
+        # elif opt.mode_net == 'text-image generator':
+        elif opt.mode_net == 'image_generator':
+            acc = calculate_accuracy(outputs, generate_target_label(labels,opt))
+            recall, precision, f1, sensitivity, specificity = calculate_recall(outputs,
+                                                                               generate_target_label(labels, opt),
                                                                                opt)
         # elif opt.mode_net == 'text-image generator':
         #     if opt.category == 'MCI_SCD':
@@ -210,7 +238,7 @@ def val_epoch(epoch,data_loader,model,criterion,opt,logger, writer,optimizer_G, 
         batch_time.update(time.time() - end_time)
         end_time = time.time()
 # need to check the data,the data of loss is the format of tensor array
-        if opt.mode_net == 'pretrained classifier':
+        if opt.mode_net == 'pretrained classifier' or opt.mode_net == 'region-specific':
             print('Epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
@@ -263,13 +291,15 @@ def val_epoch(epoch,data_loader,model,criterion,opt,logger, writer,optimizer_G, 
                 sensitivity=sensitivitys,
                 specificity=specificitys
             ))
-            if i %4 ==0:
+            if i %writer_index ==0:
                 writer.add_scalar('val/loss_G', losses.avg.cpu(),  i+(epoch-1)*len(data_loader))
                 # print(i+(epoch-1)*len(data_loader))
                 writer.add_scalar('val/loss_D', losses_discr.avg, i+(epoch-1)*len(data_loader))
                 writer.add_figure('val/gen_image', plt_image(gen_smaple), i+(epoch-1)*len(data_loader))
                 plt.close()
                 writer.add_figure('val/gen_target_image', plt_image(gen_target_smaple), i+(epoch-1)*len(data_loader))
+                plt.close()
+                writer.add_figure('val/sub_image', plt_image(sub_sample), i+(epoch-1)*len(data_loader))
                 plt.close()
                 writer.add_figure('val/noise_image', plt_image(noise_smaple), i+epoch)
                 plt.close()
@@ -296,7 +326,8 @@ def val_epoch(epoch,data_loader,model,criterion,opt,logger, writer,optimizer_G, 
     #
     # labels_arr = torch.empty(4).cuda()
     # pred_arr = torch.empty(4, 1).cuda()
-    if opt.mode_net == 'pretrained classifier':
+    generate_neurodegeneration(SFC_gen_total[1:,...], gen_target_total[1:,...], labels_total[1:,...], opt, epoch, mode='validation')
+    if opt.mode_net == 'pretrained classifier' or opt.mode_net == 'region-specific':
         logger.log({'epoch': epoch, 'loss': round(losses.avg.item(), 4),
                     'acc': round(accuracies.avg.item(), 4), 'recall': round(recalls.avg.item(), 4),
                    'precision': round(precisions.avg.item(), 4),  'f1': round(f1s.avg.item(), 4),

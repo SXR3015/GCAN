@@ -54,14 +54,14 @@ def run(fold_id, opt):
                                   'logs_%s_fold%s_%s_epoch%d' % (opt.category, str(fold_id), opt.features, opt.n_epochs))
                 event_path = OsJoin(event_path, opt.data_type, opt.mode_net,
                                      'logs_%s_fold%s_%s_epoch%d' % (opt.category, str(fold_id), opt.features, opt.n_epochs))
-            elif opt.mode_net == 'text-image generator':
-                log_path = OsJoin(result_path, opt.data_type,'total',opt.model_name + '_' + str(opt.model_depth),
+            elif opt.mode_net == 'region-specific':
+                log_path = OsJoin(result_path, opt.data_type,opt.mode_net,opt.model_name + '_' + str(opt.model_depth),
                                   'logs_%s_fold%s_%s_epoch%d' % (opt.category, str(fold_id), opt.features, opt.n_epochs))
-                event_path = OsJoin(event_path, opt.data_type, 'total',opt.model_name + '_' + str(opt.model_depth),
+                event_path = OsJoin(event_path, opt.data_type, opt.mode_net,
                                      'logs_%s_fold%s_%s_epoch%d' % (opt.category, str(fold_id), opt.features, opt.n_epochs))
         if not os.path.exists(log_path):
             os.makedirs(log_path)
-        if opt.mode_net == 'pretrained classifier':
+        if opt.mode_net == 'pretrained classifier' or opt.mode_net == 'region-specific':
             train_logger = Logger(
                 OsJoin(log_path,'train.log'),
                 # ['epoch','loss','acc','lr',])
@@ -71,7 +71,7 @@ def run(fold_id, opt):
                 OsJoin(log_path,'train.log'),
                 # ['epoch','loss','acc','lr',])
             ['epoch', 'loss_G', 'loss_D','acc','lr'])
-        if opt.mode_net == 'pretrained classifier':
+        if opt.mode_net == 'pretrained classifier' or opt.mode_net == 'region-specific':
             train_batch_logger = Logger(
                 OsJoin(log_path, 'train_batch.log'),
                 ['epoch','batch','iter','loss_G', 'acc','lr'])
@@ -92,7 +92,7 @@ def run(fold_id, opt):
         # all_parameters = set(vae.parameters())
         # discr_parameters = set(vae.discr.parameters())
         # vae_parameters = all_parameters - discr_parameters
-        if opt.mode_net == 'pretrained classifier':
+        if opt.mode_net == 'pretrained classifier' or opt.mode_net == 'region-specific':
             generator_parameters = model.parameters()
             discriminator_parameters = model.parameters()
         elif opt.mode_net == 'image_generator':
@@ -127,7 +127,7 @@ def run(fold_id, opt):
         val_loader = DataLoader(validation_data, batch_size = opt.batch_size, shuffle = False,
                                                     num_workers = opt.n_threads, pin_memory=True)
         #val_logger =  Logger(OsJoin(log_path,'val.log'),['epoch','loss','acc','recall', 'Precision', 'f1', 'sensitivity', 'specificity '])
-        if opt.mode_net == 'pretrained classifier':
+        if opt.mode_net == 'pretrained classifier' or opt.mode_net == 'region-specific':
             # val_logger = Logger(OsJoin(log_path, 'val.log'),
             #                     ['epoch', 'loss_G', 'acc'])
             val_logger = Logger(OsJoin(log_path, 'val.log'),
@@ -166,7 +166,7 @@ def run(fold_id, opt):
     test_data = TestSet()
     test_loader = torch.utils.data.DataLoader(test_data, batch_size = opt.batch_size, shuffle=False,
                                                             num_workers = 0, pin_memory=True)
-    if opt.mode_net == 'pretrained classifier':
+    if opt.mode_net == 'pretrained classifier' or opt.mode_net == 'region-specific':
         # val_logger = Logger(OsJoin(log_path, 'val.log'),
         #                     ['epoch', 'loss_G', 'acc'])
         test_logger = Logger(OsJoin(log_path, 'test.log'),

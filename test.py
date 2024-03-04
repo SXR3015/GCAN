@@ -1,10 +1,11 @@
 from torch.autograd import Variable
 import time
 from utils import OsJoin
-from utils import AverageMeter, calculate_accuracy, calculate_recall
+from utils import AverageMeter, calculate_accuracy, calculate_recall,generate_target_label,generate_neurodegeneration
 import torch
 from torch.utils.data import DataLoader
 from opts import parse_opts
+import numpy as np
 from model import generate_model
 from dataset import TestSet
 from utils import Logger
@@ -12,7 +13,10 @@ from torch import nn
 import os
 import matplotlib.pyplot as plt
 opt = parse_opts()
-
+def normalize(array):
+    max_ = np.max(np.max(array))
+    min_ = np.min(np.min(array))
+    return (array-max_)/(max_-min_)
 def plt_image(array):
     figure = plt.figure()
     plt.imshow(array)
@@ -30,7 +34,7 @@ def test_epoch(epoch, data_loader, model, writer, fold_id, criterion, opt, logge
     print('test at epoch {}'.format(epoch))
     if opt.mode_net == 'pretrained classifier':
         n_epochs = opt.n_epochs_pretrain
-    elif opt.mode_net == 'image_generator':
+    elif opt.mode_net == 'image_generator' or opt.mode_net == 'region-specific':
         n_epochs = opt.n_epochs
     try :
         resume_path = OsJoin(opt.root_path, opt.result_path, opt.data_type, opt.mode_net, opt.model_name + str(opt.model_depth),
@@ -62,6 +66,12 @@ def test_epoch(epoch, data_loader, model, writer, fold_id, criterion, opt, logge
     sensitivitys = AverageMeter()
     specificitys = AverageMeter()
     end_time = time.time()
+    SFC_gen_total =torch.zeros((1,160,160))
+    gen_target_total = torch.zeros((1, 160, 160))
+    if opt.n_classes == 3:
+        labels_total = torch.zeros((1,3))
+    elif opt.n_classes == 2:
+        labels_total = torch.zeros((1,2))
     # labels_arr = torch.empty(4).cuda()
     # pred_arr = torch.empty(4, 1).cuda()
     # pred_arr_fc = torch.empty(4, opt.n_classes).cuda()
@@ -78,6 +88,7 @@ def test_epoch(epoch, data_loader, model, writer, fold_id, criterion, opt, logge
                 labels = labels.repeat(1, inputs[0].shape[1]).view(-1, 3)
             else:
                 labels = labels.repeat(1, inputs[0].shape[1]).view(-1, 2)
+            target_FC = target_FC.unsqueeze(1).repeat(1,inputs[0].shape[1],1,1).view(-1, inputs[0].shape[2], inputs[0].shape[3])
             inputs[0] = inputs[0].view(-1, inputs[0].shape[2], inputs[0].shape[3])
             inputs[1] = inputs[1].view(-1, inputs[1].shape[2], inputs[1].shape[3])
             labels = labels.type(torch.FloatTensor)
@@ -85,10 +96,13 @@ def test_epoch(epoch, data_loader, model, writer, fold_id, criterion, opt, logge
             inputs_noise = inputs[0].type(torch.FloatTensor).unsqueeze(1)
             inputs_target = inputs[1].type(torch.FloatTensor).unsqueeze(1)
             inputs = [inputs_noise, inputs_target]
-            if opt.mode_net == 'pretrained classifier':
+            if opt.mode_net == 'pretrained classifier' or opt.mode_net == 'region-specific':
                 loss, outputs = model([inputs, labels])
             elif opt.mode_net == 'image_generator' or opt.mode_net == 'text-image generator':
                 loss, loss_discr, SFC_gen, outputs, gen_target = model([inputs,labels,target_FC])
+                SFC_gen_total = torch.concatenate([SFC_gen_total.to(SFC_gen.device), SFC_gen.squeeze()], dim=0)
+                gen_target_total = torch.concatenate([gen_target_total.to(gen_target), gen_target.squeeze()], dim=0)
+                labels_total = torch.concatenate([labels_total.to(labels), labels], dim=0)
                 if len(SFC_gen.squeeze().shape) == 3:
                     gen_smaple = SFC_gen.squeeze()[0, :, :, ...].cpu().detach().numpy()
                 else:
@@ -104,8 +118,10 @@ def test_epoch(epoch, data_loader, model, writer, fold_id, criterion, opt, logge
                     noise_smaple = inputs_noise.squeeze().cpu().detach().numpy()
                 if len(SFC_gen.squeeze().shape) == 3:
                     gen_target_smaple = gen_target.squeeze()[0, :, :, ...].cpu().detach().numpy()
+                    sub_sample = normalize(gen_target_smaple) - normalize(gen_smaple)
                 else:
                     gen_target_smaple = gen_target.squeeze().cpu().detach().numpy()
+                    sub_sample = normalize(gen_target_smaple) - normalize(gen_smaple)
                 # target_smaple = np.transpose(target_smaple, (1, 2, 0))
                 # if 'DMN' in opt.mask_option:
                 #     target_smaple[51:84, 51:84] = 0
@@ -150,11 +166,22 @@ def test_epoch(epoch, data_loader, model, writer, fold_id, criterion, opt, logge
                     plt.gca().yaxis.set_major_locator(plt.NullLocator())
                     plt.savefig(save_name)
                     plt.close()
+                    save_name = OsJoin(save_path, 'test_epoch%d_batch%sub.png' % (epoch, i + 1))
+                    plt.imshow(sub_sample)
+                    plt.axis('off')
+                    plt.gca().xaxis.set_major_locator(plt.NullLocator())
+                    plt.gca().yaxis.set_major_locator(plt.NullLocator())
+                    plt.savefig(save_name)
+                    plt.close()
             # loss, outputs = model(inputs)
             # acc = calculate_accuracy(outputs, labels)
             # recall, precision, f1, sensitivity, specificity = calculate_recall(outputs, labels, opt)
-        if opt.mode_net == 'image_generator' or opt.mode_net == 'pretrained classifier':
-            acc = calculate_accuracy(outputs, labels)
+        if opt.mode_net == 'image_generator':
+            acc = calculate_accuracy(outputs,  generate_target_label(labels,opt))
+            recall, precision, f1, sensitivity, specificity = calculate_recall(outputs,
+                                                                               generate_target_label(labels, opt),opt)
+        elif  opt.mode_net == 'pretrained classifier' or opt.mode_net == 'region-specific':
+            acc = calculate_accuracy(outputs,  labels)
             recall, precision, f1, sensitivity, specificity = calculate_recall(outputs,
                                                                                labels,opt)
         losses.update(loss.data, inputs[0].size(0))
@@ -169,7 +196,7 @@ def test_epoch(epoch, data_loader, model, writer, fold_id, criterion, opt, logge
         batch_time.update(time.time() - end_time)
         end_time = time.time()
 
-        if opt.mode_net == 'pretrained classifier':
+        if opt.mode_net == 'pretrained classifier' or opt.mode_net == 'region-specific':
             print('Epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
@@ -230,6 +257,8 @@ def test_epoch(epoch, data_loader, model, writer, fold_id, criterion, opt, logge
                 plt.close()
                 writer.add_figure('test/gen_target_image', plt_image(gen_target_smaple), i + (epoch - 1) * len(data_loader))
                 plt.close()
+                writer.add_figure('test/sub_image', plt_image(sub_sample), i + (epoch - 1) * len(data_loader))
+                plt.close()
                 writer.add_figure('test/noise_image', plt_image(noise_smaple), i + epoch)
                 plt.close()
                 writer.add_figure('test/target_image', plt_image(target_smaple), i + (epoch - 1) * len(data_loader))
@@ -245,7 +274,8 @@ def test_epoch(epoch, data_loader, model, writer, fold_id, criterion, opt, logge
     # labels_arr = torch.empty(4).cuda()
     # pred_arr = torch.empty(4, 1).cuda()
     # pred_arr_fc = torch.empty(4, opt.n_classes).cuda()
-    if opt.mode_net == 'pretrained classifier':
+    generate_neurodegeneration(SFC_gen_total[1:,...], gen_target_total[1:,...], labels_total[1:,...], opt, epoch, mode='test')
+    if opt.mode_net == 'pretrained classifier' or opt.mode_net == 'region-specific':
         logger.log({'epoch': epoch, 'loss': round(losses.avg.item(), 4),
                     'acc': round(accuracies.avg.item(), 4), 'recall': round(recalls.avg.item(), 4),
                     'precision': round(precisions.avg.item(), 4), 'f1': round(f1s.avg.item(), 4),

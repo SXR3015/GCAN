@@ -21,7 +21,7 @@ To run the model, you need to extract the dfc by Matlab. You can use the batch o
 generate_csv.py
 ```
 ### __2. pretrain classifier model__  
-set the mode_net as pretrained classifier  opt.py
+set the mode_net as pretrained classifier in opt.py
 ```diff
 run
 main.py

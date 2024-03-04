@@ -32,7 +32,7 @@ set the mode_net as image_generator in opt.py
 run
 main.py
 ```
-### __4.train final classifier__  
+### __4. train final classifier__  
 set the mode_net as region-specific in opt.py
 ```diff
 run

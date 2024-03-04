@@ -13,14 +13,28 @@ python == 3.9.0
 imageio == 2.31.1
 ``` 
 ## extract the imaging features
-To run the model, you need to extract the dfc by Matlab. You can use the batch operation of spm12 to finish this. Additionally, the input data shape might influence the kernel size of avgpooling, you need to change the kernel size, if has bugs.  
+To run the model, you need to extract the dfc by Matlab. You can use the batch operation of spm12 to finish this. Additionally, the input data shape might influence the kernel size of avgpooling in ResNet, you need to change the kernel size, if has bugs.  
 
 ## run the model
-### train and validate the model 
-```diff
-main.py
-```
 ### __Create k fold csv file__  
 ```diff
 generate_csv.py
+```
+### __pretrain classifier model__  
+set the net_mode as pretrained classifier  opt.py
+```diff
+run
+main.py
+```
+### __get counterfactual attention__  
+set the net_mode as image_generator in opt.py
+```diff
+run
+main.py
+```
+### __train final classifier__  
+set the net_mode as clssifier in opt.py
+```diff
+run
+main.py
 ```

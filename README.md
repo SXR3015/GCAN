@@ -16,23 +16,23 @@ imageio == 2.31.1
 To run the model, you need to extract the dfc by Matlab. You can use the batch operation of spm12 to finish this. Additionally, the input data shape might influence the kernel size of avgpooling in ResNet, you need to change the kernel size, if has bugs.  
 
 ## run the model
-### __Create k fold csv file__  
+### __1. Create k fold csv file__  
 ```diff
 generate_csv.py
 ```
-### __pretrain classifier model__  
+### __2. pretrain classifier model__  
 set the mode_net as pretrained classifier  opt.py
 ```diff
 run
 main.py
 ```
-### __get counterfactual attention__  
+### __3. get counterfactual attention__  
 set the mode_net as image_generator in opt.py
 ```diff
 run
 main.py
 ```
-### __train final classifier__  
+### __4.train final classifier__  
 set the mode_net as region-specific in opt.py
 ```diff
 run

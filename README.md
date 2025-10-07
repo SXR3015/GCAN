@@ -45,7 +45,7 @@ Create stratified train/validation/test CSV files:
 ```
 python generate_csv.py
 ```
-This script outputs fold-wise .csv files used for reproducible evaluation.
+This script outputs **fold-wise .csv** files used for reproducible evaluation.
 
 #### 2. Pretrain the Baseline Classifier
 In opt.py, set:
@@ -70,7 +70,7 @@ python main.py
 This stage uses the pretrained classifier to guide the generation of target-label FC matrices. The difference between generated and original FC yields the counterfactual attention map, highlighting regions most influential for diagnostic reclassification.
 
 #### 4. Train the Final Region-Specific Classifier
-In opt.py, set:
+In **opt.py**, set:
 ```
 opt.mode_net = 'region-specific'
 ```

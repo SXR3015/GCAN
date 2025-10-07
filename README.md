@@ -81,6 +81,8 @@ python main.py
 This classifier integrates the counterfactual map as an attention prior, enabling interpretable and performance-validated MCI diagnosis.
 
 📁 Project Highlights
+```
 ✅ Explainable: Counterfactual maps reveal brain regions driving diagnostic decisions.
 ✅ Modular: Each stage is independently configurable via opt.py.
 ✅ Reproducible: k-fold splits and version-locked dependencies ensure consistent results.
+```
